@@ -5,12 +5,12 @@ In this repository, the code associated with the uniform duct with mean flow, wh
 
 Comments are available at the respective sections inside the code and are self-explanatory.
 
-# How to run the code
+## How to run the code
 Open the file 'main.m' in the MATLAB editor and run
 
 Make sure that all the supporting files and 'main.m' file contained in the same folder.
 
-# Prerequisites
+## Prerequisites
 The following tools boxes are required to run the code in MATLAB environment
 
 Optimization Toolbox
