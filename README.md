@@ -13,6 +13,6 @@ Make sure that all the supporting files and 'main.m' file contained in the same 
 ## Prerequisites
 The following tools boxes are required to run the code in MATLAB environment
 
-Optimization Toolbox
-Deep Learning Toolbox
-Statistics and Machine Learning Toolbox
+1) Optimization Toolbox
+2) Deep Learning Toolbox
+3) Statistics and Machine Learning Toolbox
