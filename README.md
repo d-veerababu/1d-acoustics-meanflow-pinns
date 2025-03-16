@@ -1,5 +1,5 @@
 # Predict 1D acoustic field with mean flow using PINNs
-This repository provides an efficient, customizable approach to predict the one-dimensional acoustic field in a uniform duct with mean flow in the MATLAB environment using L-BFGS optimizer. The theory associated with the code is available in the article https://doi.org/10.20855/ijav.2024.29.42062![image](https://github.com/user-attachments/assets/6c0f0778-31a3-4af0-beeb-c76851fb8776). 
+This repository provides an efficient, customizable approach to predict the one-dimensional acoustic field in a uniform duct with mean flow in the MATLAB environment using L-BFGS optimizer. The theory associated with the code is available in the article https://doi.org/10.20855/ijav.2024.29.42062. 
 
 In this repository, the code associated with the uniform duct with mean flow, which is ideal for researchers, students, and practitioners in acoustics, computational physics and scientific machine learning, is provided.
 
