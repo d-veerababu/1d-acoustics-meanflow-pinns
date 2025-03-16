@@ -1,0 +1,224 @@
+% Program to predict 1-D acoustic field in a uniform duct with mean flow
+
+clc;
+clear all;
+
+%% Generate training data
+freq = 500;                 % Frequency (Hz)
+c = 343.2;                  % Speed of sound in air (m/s)
+rho = 1.2;                  % Density of air (kg/m^3)  
+M = 0.2;                    % Mean flow Mach number
+
+k = 2*pi*freq/c;            % Wavenumber (1/m)
+
+p_lb = 1+0j;                % Left boundary value (Pa)
+p_rb = -1+0j;               % Right boundary value (Pa)
+
+
+x0BC1 = 0;                  % Left boundary (m)
+x0BC2 = 1;                  % Right boundary (m)
+
+u0BC1 = real(p_lb);         % Real-part of the left boundary value
+v0BC1 = imag(p_lb);         % Imaginary-part of the left boundary value
+
+u0BC2 = real(p_rb);         % Real-part of the right boundary value
+v0BC2 = imag(p_rb);         % Imaginary-part of the right boundary value
+
+X0 = [x0BC1 x0BC1 x0BC2 x0BC2];
+UV0 = [u0BC1 v0BC1 u0BC2 v0BC2];
+
+numInternalCollocationPoints = 1000;
+
+pointSet = sobolset(1);                                 % Base-2 digital sequence that fills space in a highly uniform manner
+points = net(pointSet,numInternalCollocationPoints);    % Generates quasirandom point set
+
+dataX = points; % Creates random x-data points between 0 and 2pi
+
+%% Define deep learning model
+numLayers = 5;
+numNeurons = 90;
+maxFuncEvaluations = 1200;
+maxIterations = 1200;
+
+parameters_p = buildNet(numLayers,numNeurons);
+parameters_u = buildNet(numLayers,numNeurons);
+
+%% Specify optimization options
+options = optimoptions("fmincon", ...
+    HessianApproximation="lbfgs", ...
+    MaxIterations=maxIterations, ...
+    MaxFunctionEvaluations=maxFuncEvaluations, ...
+    OptimalityTolerance=1e-5, ...
+    SpecifyObjectiveGradient=true, ...
+    Display='iter');
+%% Train network for acoustic pressure
+start = tic;
+
+[parametersV_p,parameterNames_p,parameterSizes_p] = parameterStructToVector(parameters_p);
+parametersV_p = extractdata(parametersV_p);
+
+%% Convert the variables into deep-learning variables
+X = dlarray(dataX,"BC");
+X0 = dlarray(X0,"CB");
+UV0 = dlarray(UV0,"CB");
+
+objFun_p = @(parameters_p) objectiveFunction_p(parameters_p,X,X0,UV0,parameterNames_p,parameterSizes_p,k,M);
+
+parametersV_p = fmincon(objFun_p,parametersV_p,[],[],[],[],[],[],[],options);
+
+parameters_p = parameterVectorToStruct(parametersV_p,parameterNames_p,parameterSizes_p);
+
+toc(start)
+
+%% Train network for particle velocity
+start = tic;
+
+[parametersV_u,parameterNames_u,parameterSizes_u] = parameterStructToVector(parameters_u);
+parametersV_u = extractdata(parametersV_u);
+
+objFun_u = @(parameters_u) objectiveFunction_u(parameters_u,parameters_p,X,X0,UV0,parameterNames_u,parameterSizes_u,k,M,rho,c);
+
+parametersV_u = fmincon(objFun_u,parametersV_u,[],[],[],[],[],[],[],options);
+
+parameters_u = parameterVectorToStruct(parametersV_u,parameterNames_u,parameterSizes_u);
+
+toc(start)
+
+%% Evaluate model accuracy
+numPredictions = 100;
+XTest = linspace(0,1,numPredictions);
+
+dlXTest = dlarray(XTest,'CB');
+P = model(parameters_p,dlXTest);
+dlPr_Pred = (1-dlXTest)*UV0(1)+dlXTest*UV0(3)/X0(4)+(X0(4)-dlXTest).*dlXTest.*P(1,:);
+dlPi_Pred = (1-dlXTest)*UV0(2)+dlXTest*UV0(4)/X0(4)+(X0(4)-dlXTest).*dlXTest.*P(2,:);
+
+U = model(parameters_u,dlXTest);
+dlUr_Pred = U(1,:);
+dlUi_Pred = U(2,:);
+
+P_Pred = complex(extractdata(dlPr_Pred),extractdata(dlPi_Pred));
+U_Pred = complex(extractdata(dlUr_Pred),extractdata(dlUi_Pred));
+Z_Pred = P_Pred./U_Pred;
+Zr_Pred = real(Z_Pred);
+Zi_Pred = imag(Z_Pred);
+
+% Calcualte true values
+[P_True,U_True,Z_True] = solve1DWaveEqn(XTest,k,M,p_lb,p_rb,rho,c);
+Pr_True = real(P_True);
+Pi_True = imag(P_True);
+Ur_True = real(U_True);
+Ui_True = imag(U_True);
+Zr_True = real(Z_True);
+Zi_True = imag(Z_True);
+
+% Calculate error
+err_Pr = norm(extractdata(dlPr_Pred) - Pr_True) / norm(Pr_True);
+err_Pi = norm(extractdata(dlPi_Pred) - Pi_True) / norm(Pi_True);
+
+err_Ur = norm(extractdata(dlUr_Pred) - Ur_True) / norm(Ur_True);
+err_Ui = norm(extractdata(dlUi_Pred) - Ui_True) / norm(Ui_True);
+
+err_Zr = norm(Zr_Pred - Zr_True) / norm(Zr_True);
+err_Zi = norm(Zi_Pred - Zi_True) / norm(Zi_True);
+
+f1 = figure;
+
+% Plot predictions
+plot(XTest,extractdata(dlPr_Pred),'-','LineWidth',2);
+
+% Plot true values.
+hold on
+plot(XTest, Pr_True, '--','LineWidth',2)
+hold off
+
+xlabel('x','FontSize',14,'FontWeight','bold')
+ylabel('Pressure-Real','FontSize',14,'FontWeight','bold')
+title("Frequency = " + freq + " Hz;" + " Relative Error = " + gather(err_Pr));
+
+legend('Predicted','True')
+
+
+f2 = figure;
+
+% Plot predictions.
+plot(XTest,extractdata(dlPi_Pred),'-','LineWidth',2);
+
+% Plot true values.
+hold on
+plot(XTest, Pi_True, '--','LineWidth',2)
+hold off
+
+xlabel('x','FontSize',14,'FontWeight','bold')
+ylabel('Pressure-Imaginary','FontSize',14,'FontWeight','bold')
+title("Frequency = " + freq + "Hz;" + " Relative Error = " + gather(err_Pi));
+
+legend('Predicted','True')
+
+f3 = figure;
+
+% Plot predictions.
+plot(XTest,extractdata(dlUr_Pred),'-','LineWidth',2);
+% ylim([-1.1, 1.1])
+
+% Plot true values.
+hold on
+plot(XTest, Ur_True, '--','LineWidth',2)
+hold off
+
+xlabel('x','FontSize',14,'FontWeight','bold')
+ylabel('Velocity-Real','FontSize',14,'FontWeight','bold')
+title("Frequency = " + freq + "Hz;" + " Relative Error = " + gather(err_Ur));
+
+legend('Predicted','True')
+
+f4 = figure;
+
+% Plot predictions.
+plot(XTest,extractdata(dlUi_Pred),'-','LineWidth',2);
+% ylim([-1.1, 1.1])
+
+% Plot true values.
+hold on
+plot(XTest, Ui_True, '--','LineWidth',2)
+hold off
+
+xlabel('x','FontSize',14,'FontWeight','bold')
+ylabel('Velocity-Imaginary','FontSize',14,'FontWeight','bold')
+title("Frequency = " + freq + "Hz;" + " Relative Error = " + gather(err_Ui));
+
+legend('Predicted','True')
+
+f5 = figure;
+
+% Plot predictions.
+plot(XTest,Zr_Pred,'-','LineWidth',2);
+% ylim([-1.1, 1.1])
+
+% Plot true values.
+hold on
+plot(XTest,Zr_True, '--','LineWidth',2)
+hold off
+
+xlabel('x','FontSize',14,'FontWeight','bold')
+ylabel('Impedance-Real','FontSize',14,'FontWeight','bold')
+title("Frequency = " + freq + "Hz;" + " Relative Error = " + gather(err_Zr));
+
+legend('Predicted','True')
+
+f6 = figure;
+
+% Plot predictions.
+plot(XTest,Zi_Pred,'-','LineWidth',2);
+% ylim([-1.1, 1.1])
+
+% Plot true values.
+hold on
+plot(XTest,Zi_True, '--','LineWidth',2)
+hold off
+
+xlabel('x','FontSize',14,'FontWeight','bold')
+ylabel('Impedance-Imaginary','FontSize',14,'FontWeight','bold')
+title("Frequency = " + freq + "Hz;" + " Relative Error = " + gather(err_Zi));
+
+legend('Predicted','True')
